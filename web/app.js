@@ -242,7 +242,7 @@ $('#batchStart').onclick=()=>{
 $('#recAll').onclick=()=>{
   if (!latest) return;
   if (latest.paused) changeRecord({paused:false});
-  else confirmAction('暫停全部錄影？','將暫停 '+latest.cameras.filter(c=>c.record).length+' 台已啟用的攝影機。','全部暫停',()=>changeRecord({paused:true}));
+  else confirmAction('暫停全部錄影？','所有已啟用的攝影機都會暫停錄影。','全部暫停',()=>changeRecord({paused:true}));
 };
 $('#scanBtn').onclick=async()=>{
   $('#scanBtn').disabled=true;
@@ -414,7 +414,7 @@ async function loadArchive() {
   filesVersion++; clearFileList(); showPath('');
   camera.disabled=true; camera.replaceChildren();
   try {
-    const data=await request('/api/cams'+($('#showAll').checked ? '?all=1' : ''));
+    const data=await request('/api/cams');
     if (view!=='archive' || version!==archiveVersion) return;
     inventory=data;
     for (const c of data.cams) camera.add(new Option(c.ip+(c.record?'':'（已停錄）'),c.dir));
@@ -430,7 +430,7 @@ async function loadFiles(cam,range='recent') {
   clearFileList(); showPath(cam);
   $('#range').replaceChildren(new Option('最近三天','recent'),new Option('全部日期','all'));
   if (!cam) {
-    $('#archiveMeta').textContent='尚無攝影機資料夾';
+    $('#archiveMeta').textContent='最近一次掃描沒有找到攝影機。可到「架設檢查」重新掃描。';
     return;
   }
   try {
@@ -555,7 +555,7 @@ function askDelete(cam,items,day) {
     cam.replace(/_/g,'.')+' · '+label+'\n共 '+targets.length+' 段，'+displaySize(total)+'。刪除後無法復原。',
     '確認刪除',()=>removeClips(cam,targets));
 }
-$('#showAll').onchange=$('#reload').onclick=loadArchive;
+$('#reload').onclick=loadArchive;
 $('#camera').onchange=()=>loadFiles($('#camera').value);
 $('#range').onchange=changeRange;
 $('#manage').onclick=()=>{

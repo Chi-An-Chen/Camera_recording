@@ -56,6 +56,57 @@ class SharedScanTests(unittest.TestCase):
             self.assertEqual(viewer.scan_snapshot()['time'], 1)
         self.assertFalse(os.path.exists(self.shared + '.lock'))
 
+    def test_live_list_follows_scan_even_when_old_cameras_are_retrying(self):
+        old, current = '192.0.2.1', '192.0.2.2'
+        cfg = dict(paused=False, cameras=[dict(ip=old)])
+        rec = dict(running=True, cameras={old: dict(state='retrying')})
+        with patch.object(viewer, 'rec_config', return_value=cfg), \
+                patch.object(viewer, 'rec_status', return_value=rec):
+            for ips in ([old, current], [current], []):
+                devices = [dict(ip=ip, status='auth') for ip in ips]
+                record_config.write_json(self.shared, dict(self.result(1), cameras=devices))
+                live = viewer.live_summary()
+                self.assertEqual([row['ip'] for row in live['cameras']], ips)
+                self.assertEqual(set(live['rec']['cameras']), {old}.intersection(ips))
+                self.assertEqual([c['ip'] for c in viewer.archive_cameras()], ips)
+
+    def test_manual_scan_parks_missing_same_subnet_camera_and_keeps_its_files(self):
+        a, b = '192.0.2.5', '192.0.2.6'
+        root = os.path.dirname(self.shared)
+        old_dir = os.path.join(root, a.replace('.', '_'))
+        os.mkdir(old_dir)
+        clip = os.path.join(old_dir, '20260101_090000.mp4')
+        with open(clip, 'wb') as f:
+            f.write(b'old clip')
+        def result(ips):
+            return dict(self.result(time.time()), cameras=[
+                dict(ip=ip, port=554, path='/video', status='ok') for ip in ips])
+
+        stop = threading.Event()
+        with patch.object(record_config, 'CONFIG_FILE', self.shared + '.config'), \
+                patch.object(recorder, 'auto_present', frozenset()), \
+                patch.object(recorder, 'stop_event', stop), \
+                patch.object(discover, 'local_networks', return_value=[('192.0.2.0/24', '192.0.2.1')]), \
+                patch.object(discover, 'scan_interfaces', return_value=result([a, b])) as probe:
+            record_config.save_config(dict(cameras=[], auto_record_discovered=True))
+            def publish_or_stop(_):
+                if a in recorder.auto_present:
+                    record_config.write_json(self.shared, result([b]))
+                else:
+                    stop.set()
+            with patch.object(stop, 'wait', side_effect=publish_or_stop):
+                recorder.discovery_loop(True, root)
+            self.assertEqual(probe.call_count, 1)
+            self.assertEqual(recorder.auto_present, {b})
+            cfg = record_config.load_config()
+            self.assertEqual([c['ip'] for c in cfg['other_network_cameras']], [a])
+            self.assertEqual([c['ip'] for c in cfg['cameras']], [b])
+            self.assertTrue(os.path.isfile(clip))
+            os.unlink(clip)
+            os.rmdir(old_dir)
+            recorder.select_discovered(result([b]), {a, b})
+            self.assertFalse(os.path.exists(old_dir))
+
     def test_held_recorder_lock_suppresses_manual_scan_in_another_process(self):
         child = """
 import json, sys
@@ -117,6 +168,39 @@ with patch.object(scan_store, 'scan_and_save'):
                         patch.object(discover, 'scan_interfaces', return_value=self.result(2)) as probe:
                     recorder.discovery_loop()
                 self.assertEqual(probe.call_count, expected_scans)
+
+    def test_auto_record_switch_return_pause_and_manual_stop(self):
+        a, b, c = '192.0.2.5', '198.51.100.7', '192.0.2.8'
+        def result(network, ips):
+            return dict(networks=[network], cameras=[
+                dict(ip=ip, status='ok', port=8554, path='/video') for ip in ips])
+        first = result('192.0.2.0/24', [a, b, c])
+        first['cameras'].append(dict(ip='192.0.2.9', status='auth'))
+        second = result('198.51.100.0/24', [b])
+        original = dict(ip=a, url='rtsp://example.invalid/custom')
+        cfg = dict(paused=True, cameras=[original])
+        with patch.object(record_config, 'CONFIG_FILE', self.shared + '.config'):
+            record_config.save_config(cfg)
+            self.assertFalse(recorder.select_discovered(first, set()))
+            self.assertEqual(record_config.load_config(), cfg)
+            record_config.save_config(dict(cfg, auto_record_discovered=True))
+            seen = recorder.select_discovered(first, set())
+            stored = record_config.load_config()
+            self.assertEqual(seen, {a, c})
+            self.assertTrue(stored['paused'])
+            self.assertEqual(stored['cameras'][0], original)
+            self.assertEqual(stored['cameras'][1]['url'], 'rtsp://192.0.2.8:8554/video')
+            self.assertTrue(viewer.update_config({'ip': c, 'record': False})['ok'])
+            recorder.select_discovered(first, seen)
+            self.assertEqual(record_config.load_config()['cameras'], [original])
+            recorder.select_discovered(second, set())
+            moved = record_config.load_config()
+            self.assertEqual([x['ip'] for x in moved['cameras']], [b])
+            self.assertEqual(moved['other_network_cameras'], [original])
+            recorder.select_discovered(first, set())
+            returned = record_config.load_config()
+            self.assertEqual(returned['cameras'], stored['cameras'])
+            self.assertEqual([x['ip'] for x in returned['other_network_cameras']], [b])
 
     def test_manual_failure_keeps_previous_result_until_new_success(self):
         record_config.write_json(self.shared, self.result(1))

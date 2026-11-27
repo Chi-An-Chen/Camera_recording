@@ -12,6 +12,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 record_cams.py
 # Ctrl+C 等同 SIGINT，讓 ffmpeg 正常收尾 mp4
 KillSignal=SIGINT
+# Signal the supervisor first; it sends one SIGINT to each FFmpeg and waits for the MP4 trailer.
+KillMode=mixed
 TimeoutStopSec=20
 Restart=always
 RestartSec=10

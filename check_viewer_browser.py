@@ -223,8 +223,10 @@ def run(root, browser, screenshots):
                 page.wait_for_function("document.querySelector('#toast').textContent.includes('保留 1 段')")
                 page.wait_for_function("document.querySelector('#archiveMeta').textContent==='已完成 0 段'")
             assert (root / directory(C) / older).exists()
-            page.uncheck('#showAll')
+            devices[:] = devices[:2]
+            page.click('#reload')
             page.wait_for_function("document.querySelector('#camera').options.length===2")
+            assert (root / directory(C) / older).exists()
             page.close()
 
             with patch.object(viewer, 'rec_status', return_value=dict(running=False, cameras={})):

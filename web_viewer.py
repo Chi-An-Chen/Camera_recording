@@ -156,6 +156,14 @@ def rec_status():
 
 def update_config(body):
     """Apply a global pause or camera changes in one configuration write."""
+    try:
+        with rc.config_edit():
+            return _update_config(body)
+    except OSError as e:
+        return {"error": "錄影設定無法鎖定: {}".format(e)}
+
+
+def _update_config(body):
     global _last_config
     with _cfg_lock:
         try:
@@ -214,19 +222,18 @@ def live_summary():
     active = rec["cameras"] if rec["running"] else {}
     cameras = []
     now = time.time()
-    for ip in sorted(selected | set(found) | set(active),
-                     key=lambda ip: (ip not in selected, tuple(int(p) for p in ip.split(".")))):
-        device = found.get(ip, {})
+    for ip in sorted(found, key=lambda ip: (ip not in selected, ipaddress.IPv4Address(ip))):
+        device = found[ip]
         cameras.append({
             "ip": ip, "name": device.get("name", ""), "record": ip in selected,
-            "status": device.get("status", "unseen"), "can_preview": ip in selected or device.get("status") == "ok",
+            "status": device["status"], "can_preview": ip in selected or device["status"] == "ok",
             "health": camera_health(rc.OUT_DIR, ip, ip in selected, cfg["paused"], rec, now),
         })
     du = shutil.disk_usage(rc.OUT_DIR)
     heartbeat = {k: rec[k] for k in ("running", "updated", "schedule", "in_schedule", "paused", "pid")
                  if k in rec}
     heartbeat["cameras"] = {ip: {"state": row.get("state"), "since": row.get("since")}
-                            for ip, row in active.items()}
+                            for ip, row in active.items() if ip in found}
     return dict(time=scan["time"], seconds=scan["seconds"], networks=scan["networks"],
                 scanning=scan["scanning"], scan_error=scan["error"],
                 cameras=cameras, paused=cfg["paused"], rec=heartbeat, now=now,
@@ -346,15 +353,11 @@ def live_cam(ip):
 
 
 # ---------------------------------------------------------------- 檔案
-def cam_dirs(show_all=False):
-    """回傳 [(資料夾名, ip)]；預設只有設定要錄影的攝像頭，show_all 時再加上磁碟上已停錄的舊資料夾。"""
-    names = {c["ip"].replace(".", "_"): c["ip"] for c in rec_config()["cameras"]}
-    if show_all and os.path.isdir(rc.OUT_DIR):
-        for n in os.listdir(rc.OUT_DIR):
-            path = os.path.join(rc.OUT_DIR, n)
-            if re.fullmatch(CAM_RE, n) and not os.path.islink(path) and os.path.isdir(path):
-                names.setdefault(n, n.replace("_", "."))
-    return sorted(names.items(), key=lambda x: [int(p) for p in x[0].split("_")])
+def archive_cameras():
+    selected = {c["ip"] for c in rec_config()["cameras"]}
+    found = {c["ip"] for c in scan_snapshot()["cameras"]}
+    return [{"dir": ip.replace(".", "_"), "ip": ip, "record": ip in selected}
+            for ip in sorted(found, key=ipaddress.IPv4Address)]
 
 
 # ---------------------------------------------------------------- HTTP
@@ -382,10 +385,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_bytes(*self.server.assets[path])
             if path == "/api/cams":
                 du = shutil.disk_usage(rc.OUT_DIR)
-                rec_ips = {c["ip"] for c in rec_config()["cameras"]}
                 return self.send_json({
-                    "cams": [{"dir": d, "ip": ip, "record": ip in rec_ips}
-                             for d, ip in cam_dirs("all" in q)],
+                    "cams": archive_cameras(),
                     "disk": {"total": du.total, "free": du.free},
                     "segment": rc.SEGMENT_SEC,
                     "root": os.path.abspath(rc.OUT_DIR), "today": time.strftime("%Y-%m-%d"),

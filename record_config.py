@@ -1,8 +1,10 @@
 """Shared recording settings. Importing this module performs no disk I/O."""
 import ipaddress
+import fcntl
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,12 +18,25 @@ def default_url(ip):
     return "rtsp://{}:554/h264".format(ip)
 
 
+@contextmanager
+def config_edit():
+    """Serialize read/modify/write transactions from the viewer and recorder."""
+    with open(CONFIG_FILE + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def validate(cfg):
     if not isinstance(cfg, dict) or not isinstance(cfg.get("cameras"), list):
         raise ValueError("cameras must be a list")
     paused = cfg.get("paused", False)
     if not isinstance(paused, bool):
         raise ValueError("paused must be true or false")
+    if not isinstance(cfg.get("auto_record_discovered", False), bool):
+        raise ValueError("auto_record_discovered must be true or false")
+    if "other_network_cameras" in cfg:
+        parked = validate({"cameras": cfg["other_network_cameras"]})
+        cfg = dict(cfg, other_network_cameras=parked["cameras"])
     cameras = []
     for index, item in enumerate(cfg["cameras"]):
         ip = item.get("ip") if isinstance(item, dict) else None

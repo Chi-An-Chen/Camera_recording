@@ -31,6 +31,7 @@ import time
 
 import discover
 import scan_store
+import record_config
 
 from record_config import (OUT_DIR, REC_END, REC_START, SEGMENT_SEC, STATUS_FILE,
                            default_url, load_config, write_json)
@@ -46,6 +47,7 @@ writers_lock = threading.Lock()
 stop_event = threading.Event()
 status = {}                  # ip -> current worker state and segment evidence
 status_lock = threading.Lock()
+auto_present = frozenset()   # eligible only after a completed scan in this process
 
 
 def log(name, msg):
@@ -93,15 +95,59 @@ def build_cmd(url, out_pattern, segment_sec):
     ]
 
 
-def discovery_loop():
+def select_discovered(result, seen):
+    """Keep other networks' settings for later; respect manual stops between network changes."""
+    nets = [ipaddress.ip_network(n) for n in result["networks"]]
+    def local(ip):
+        address = ipaddress.IPv4Address(ip)
+        return any(address in net for net in nets)
+
+    with record_config.config_edit():
+        cfg = load_config()
+        if cfg.get("auto_record_discovered") is not True or not nets:
+            return set()
+        saved = {c["ip"]: c for c in cfg.get("other_network_cameras", [])}
+        saved.update((c["ip"], c) for c in cfg["cameras"])
+        readable = set()
+        for cam in result["cameras"]:
+            ip = cam["ip"]
+            if cam["status"] == "ok" and local(ip):
+                readable.add(ip)
+                url = "rtsp://{}:{}{}".format(ip, cam["port"], cam["path"])
+                entry = saved.get(ip)
+                if entry is None and ip not in seen:
+                    saved[ip] = {"ip": ip, "url": url, "auto_url": url}
+                elif entry and entry.get("auto_url") == entry["url"] and entry["url"] != url:
+                    saved[ip] = dict(entry, url=url, auto_url=url)
+        present = {cam["ip"] for cam in result["cameras"] if local(cam["ip"])}
+        active, parked = [], []
+        for ip in sorted(saved, key=ipaddress.IPv4Address):
+            (active if ip in present else parked).append(saved[ip])
+        if active != cfg["cameras"] or parked != cfg.get("other_network_cameras", []):
+            cfg.update(cameras=active, other_network_cameras=parked)
+            record_config.save_config(cfg)
+            log("discovery", "自動更新錄影名單：{} 台，未掃到的設定保留 {} 台".format(len(active), len(parked)))
+        return seen | readable
+
+
+def discovery_loop(select_cameras=False, out_dir=OUT_DIR):
+    global auto_present
     previous = None
+    seen = set()
     deadline = 0
     waiting_since = None
+    applied = None
     while not stop_event.is_set():
         try:
             interfaces = discover.local_networks()
             networks = tuple(sorted(str(net) for net, _ in interfaces))
-            if networks and (networks != previous or time.monotonic() >= deadline):
+            if select_cameras and networks != previous:
+                auto_present = frozenset()
+            due = networks != previous or time.monotonic() >= deadline
+            # Both services publish complete scans by atomic replacement.
+            version = scan_store.result_version() if select_cameras and networks and not due else None
+            published = version is not None and version != applied
+            if networks and (due or published):
                 attempted = time.time()
                 lock = scan_store.try_scan_lock()
                 if lock is None:
@@ -109,10 +155,30 @@ def discovery_loop():
                         waiting_since = attempted
                 else:
                     with lock:
-                        if waiting_since is None or not scan_store.completed_since(waiting_since, networks):
-                            scan_store.scan_and_save(interfaces, stop_event)
+                        if published or (waiting_since is not None and
+                                         scan_store.completed_since(waiting_since, networks)):
+                            result = scan_store.read_result(scan_store.DISCOVERED_FILE)
+                            if tuple(sorted(result["networks"])) != networks:
+                                result = scan_store.scan_and_save(interfaces, stop_event)
+                        else:
+                            result = scan_store.scan_and_save(interfaces, stop_event)
+                        if select_cameras and result is not None:
+                            version = scan_store.result_version()
                     if stop_event.is_set():
                         return
+                    if select_cameras:
+                        current = tuple(sorted(str(net) for net, _ in discover.local_networks()))
+                        if current != networks:
+                            previous = None
+                            waiting_since = None
+                            continue
+                        seen = select_discovered(result, seen if previous == networks else set())
+                        nets = [ipaddress.ip_network(n) for n in networks]
+                        auto_present = frozenset(cam["ip"] for cam in result["cameras"]
+                                                 if any(ipaddress.IPv4Address(cam["ip"]) in n for n in nets))
+                        for ip in auto_present:
+                            os.makedirs(os.path.join(out_dir, ip.replace(".", "_")), exist_ok=True)
+                        applied = version
                     waiting_since = None
                     previous = networks
                     deadline = time.monotonic() + 600
@@ -367,6 +433,9 @@ def supervise(args):
             want = {}
         else:
             want = {} if cfg["paused"] else {c["ip"]: c["url"] for c in cfg["cameras"]}
+            if cfg.get("auto_record_discovered") is True:
+                present = auto_present
+                want = {ip: url for ip, url in want.items() if ip in present}
         if cfg["paused"] != last_paused:
             if cfg["paused"]:
                 log("main", "全部暫停錄影")
@@ -441,7 +510,7 @@ def main():
 def run(args):
     signal.signal(signal.SIGINT, lambda *_: stop_event.set())
     signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
-    threading.Thread(target=discovery_loop, daemon=True).start()
+    threading.Thread(target=discovery_loop, args=(not args.ips, args.out), daemon=True).start()
     threading.Thread(target=cleanup_loop, args=(args.out, args.min_free_gb), daemon=True).start()
     supervise(args)
     try:

@@ -11,6 +11,14 @@ from record_config import OUT_DIR, write_json
 DISCOVERED_FILE = os.path.join(OUT_DIR, "recorder_discovered.json")
 
 
+def result_version():
+    try:
+        st = os.stat(DISCOVERED_FILE)
+        return st.st_ino, st.st_mtime_ns
+    except FileNotFoundError:
+        return None
+
+
 def read_result(path):
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
