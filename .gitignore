@@ -1,0 +1,29 @@
+# Per-host settings, recorder state and discovery data
+record_config.json
+record_config.json.*
+record_status.json
+recorder_discovered.json
+discovered.json
+.record_cams.lock
+recorder_discovered.json.lock
+.recorder-json-*
+.env
+.env.*
+
+# Camera archives, screenshots and local deployment copies
+*.mp4
+[0-9]*_[0-9]*_[0-9]*_[0-9]*/
+/recordings/
+/screenshots/
+/test-release-*/
+/SHA256SUMS
+
+# Development files
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/
+*.log

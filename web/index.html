@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AAEON 錄影主機</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="mast">
+  <div class="shell mast-inner">
+    <div class="brand"><i aria-hidden="true"></i><strong>AAEON</strong><span>錄影主機</span></div>
+    <nav aria-label="主導覽">
+      <a id="nav-setup" href="#setup" aria-current="page">架設檢查</a>
+      <a id="nav-archive" href="#archive">錄影檔</a>
+    </nav>
+  </div>
+</header>
+<main class="shell">
+  <section id="setup" aria-labelledby="setup-title">
+    <div class="heading">
+      <h1 id="setup-title">架設檢查</h1>
+      <details id="controls" class="controls">
+        <summary>錄影管理</summary>
+        <div class="menu">
+          <p>全機錄影排程<strong id="schedule">尚無回報</strong></p>
+          <button id="recAll" disabled>全部暫停</button>
+        </div>
+      </details>
+    </div>
+    <div class="metrics" id="metrics">
+      <div class="metric write-metric"><div><h2>正在寫入 / 已啟用</h2><strong id="writeCount">—</strong></div><button id="detailsBtn" aria-expanded="false" aria-controls="serviceMetric diskMetric">主機詳情</button></div>
+      <div class="metric" id="serviceMetric"><h2>服務回報</h2><strong id="heartbeat">讀取中</strong><span id="heartbeatTime"></span></div>
+      <div class="metric disk" id="diskMetric"><h2>錄影碟可用</h2><strong id="space">—</strong><progress id="spaceBar" value="0" max="100" aria-label="可用空間百分比"></progress></div>
+    </div>
+    <p class="notice warn" id="stale" role="status" hidden></p>
+    <section class="panel" aria-labelledby="devices-title">
+      <div class="panel-head">
+        <div><h2 id="devices-title">攝影機</h2><p id="scanMeta">讀取掃描紀錄中</p></div>
+        <button id="scanBtn">重新掃描</button>
+      </div>
+      <div class="batch"><span>勾選待啟用的鏡頭，一起加入錄影排程。</span><button id="batchStart" class="primary" disabled>啟用所選（0）</button></div>
+      <div class="grid labels" aria-hidden="true"><span>裝置</span><span>錄影狀態</span><span>最後寫入</span><span>操作</span></div>
+      <div id="deviceList"></div>
+      <p class="empty" id="deviceEmpty">讀取攝影機中</p>
+    </section>
+  </section>
+  <section id="archive" hidden aria-labelledby="archive-title">
+    <div class="heading"><h1 id="archive-title">錄影檔</h1><button id="reload">重新整理</button></div>
+    <div class="filters">
+      <label>攝影機<select id="camera"></select></label>
+      <label>日期<select id="range"><option value="recent">最近三天</option></select></label>
+      <label class="check"><input id="showAll" type="checkbox" checked>含已停錄鏡頭</label>
+    </div>
+    <div class="pathbar" hidden id="pathbar"><label for="folder">主機資料夾</label><input id="folder" readonly><button id="copy">複製路徑</button></div>
+    <p class="notice warn" id="archiveError" role="status" hidden></p>
+    <section class="panel">
+      <div class="panel-head"><div><h2>片段清單</h2><p id="archiveMeta">讀取中</p></div><button id="manage" aria-pressed="false">管理檔案</button></div>
+      <div id="days"></div>
+    </section>
+    <section id="playback" class="panel playback" hidden aria-labelledby="clipTitle">
+      <div class="panel-head"><div><h2 id="clipTitle">片段回放</h2><p id="clipInfo"></p></div><button id="closePlayer">關閉回放</button></div>
+      <video id="player" controls muted playsinline preload="none"></video>
+      <div class="play-tools"><a class="button" id="download">下載這段</a><button class="danger-text" id="delCur">刪除這段</button></div>
+    </section>
+  </section>
+</main>
+<dialog id="confirm" aria-labelledby="confirmTitle" aria-describedby="confirmDetail">
+  <h2 id="confirmTitle"></h2><p id="confirmDetail"></p>
+  <div class="dialog-actions"><button id="cancel" autofocus>取消</button><button id="proceed" class="danger">確認</button></div>
+</dialog>
+<div class="toast" role="status" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

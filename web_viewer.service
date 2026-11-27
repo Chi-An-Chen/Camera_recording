@@ -1,0 +1,16 @@
+[Unit]
+Description=Camera recording web viewer (web_viewer.py, port 8080)
+After=network-online.target
+RequiresMountsFor=@QUOTED_PROJECT_DIR@
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+WorkingDirectory=@PROJECT_DIR@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 web_viewer.py --port 8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
