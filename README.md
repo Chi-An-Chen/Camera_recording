@@ -50,8 +50,6 @@
 - **回來取檔**。「錄影檔」預設顯示主機今天與前兩天，包含已停錄鏡頭。每一天列出已完成段數、總容量及首末片段起錄時間。展開日期可回放或下載單段。整批拷貝時，可用「複製路徑」找到主機上的攝影機目錄，依清單挑選已完成的檔案。清單可手動重新整理。
 - **刪除**。開啟「管理檔案」後可刪單段或當天已完成的片段。確認視窗列出攝影機、檔名或日期、段數和容量。伺服器會重新比對檔案身分、MP4 結構及是否仍開啟寫入。Linux 使用檔案租約，無法確認或片段已被替換時會保留檔案並回報原因。升級前已開著的網頁須重新整理才能刪除。
 
-深色版面依架設與取檔兩個工作流程安排，桌面操作目標至少 40 px，窄螢幕至少 44 px。設計參考 [Anthropic Frontend Design](https://github.com/anthropics/skills/tree/main/skills/frontend-design)、[Addy Osmani Frontend UI Engineering](https://www.ui-skills.com/skills/addyosmani/frontend-ui-engineering)、[Taste Skill](https://github.com/Leonxlnx/taste-skill)。
-
 ## 安裝時要填哪些路徑
 
 正式主機需要 Linux、Python 3.6 以上、FFmpeg、`ip`（iproute2），安裝服務時另需 systemd。網站預設使用 8080 埠。
@@ -89,12 +87,10 @@ systemctl show -p Id -p ActiveState -p WorkingDirectory -p ExecStart record_cams
 
 腳本也接受 `record_cams` 或 `web_viewer`，可單獨更新其中一個服務。
 
-### 驗證與 GitHub 提交範圍
+### 驗證
 
 ```bash
 python3 -B -m unittest discover -v
 ```
 
 選用的瀏覽器測試為 `python3 -B check_viewer_browser.py`，需安裝 Python Playwright、Chromium 或 Chrome，以及支援 libx264 的 FFmpeg。如需指定瀏覽器，請將 `CHROME_BIN` 設為本機瀏覽器執行檔的完整路徑。選用的 `VIEWER_SCREENSHOTS` 可指向 `screenshots/` 儲存測試畫面。
-
-提交程式、測試、`web/`、服務範本與 `record_config.example.json`。`.gitignore` 已排除本機攝影機名單（可能含 RTSP 認證）、掃描結果、心跳、鎖檔、攝影機目錄及影片。請將含私有連線資訊的設定只放在本機的 `record_config.json`；上傳前可在 Git 工作目錄執行 `git status --short --untracked-files=all` 檢查清單。
